@@ -1,10 +1,139 @@
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-
+import numpy as np
 import pandas as pd
 
-DATA_PATH = Path("companies_dataset.csv")
+DATA_PATH = Path("companies_merged_dataset.csv")
+TRADEMARKS_PATH = Path("result_mktu.csv")
 
+
+def load_trademarks_dataset() -> pd.DataFrame:
+    """
+    Загружает датасет товарных знаков с классами МКТУ.
+
+    Ожидаемый формат CSV:
+    - inn: ИНН компании (строка)
+    - reg_num: регистрационный номер ТЗ
+    - classes: строка с классами МКТУ (например "39,43")
+
+    Важно:
+    - inn читается как строка, чтобы сохранить ведущие нули;
+    - если файл отсутствует, выбрасывается понятная ошибка.
+    """
+    if not TRADEMARKS_PATH.exists():
+        raise FileNotFoundError(
+            f"Файл МКТУ не найден: {TRADEMARKS_PATH.resolve()}"
+        )
+
+    df = pd.read_csv(TRADEMARKS_PATH, dtype={"inn": str, "reg_num": str})
+    return df
+
+def _parse_classes(value: Any) -> List[int]:
+    """
+    Преобразует значение classes в список целых чисел.
+
+    Поддерживает разные форматы:
+    - "39,43" -> [39, 43]
+    - "10, 27, 32" -> [10, 27, 32]
+    - 44 -> [44]
+    - NaN -> []
+
+    Используется для унификации данных МКТУ.
+    """
+    if pd.isna(value):
+        return []
+
+    if isinstance(value, (int, float)):
+        return [int(value)]
+
+    if isinstance(value, str):
+        return [int(x.strip()) for x in value.split(",") if x.strip().isdigit()]
+
+    return []
+
+def get_company_trademarks(inn: str, limit: int = 100, offset: int = 0) -> Dict[str, Any]:
+    """
+        Возвращает список товарных знаков компании с классами МКТУ.
+
+        Для каждого товарного знака возвращается:
+        - reg_num: номер ТЗ
+        - classes: исходная строка классов
+        - classes_list: список классов (int)
+        - classes_count: количество классов
+
+        Поддерживает пагинацию и корректную обработку разных форматов classes.
+        """
+    df = load_trademarks_dataset()
+
+    if "inn" not in df.columns:
+        raise ValueError("В датасете МКТУ отсутствует колонка 'inn'")
+
+    result = df[df["inn"] == inn]
+
+    total = len(result)
+
+    paged = result.iloc[offset: offset + limit]
+
+    records = paged.to_dict(orient="records")
+
+    items = []
+    for record in records:
+        classes_list = _parse_classes(record.get("classes"))
+
+        items.append(
+            {
+                "inn": record.get("inn"),
+                "reg_num": record.get("reg_num"),
+                "classes": record.get("classes"),
+                "classes_list": classes_list,
+                "classes_count": len(classes_list),
+            }
+        )
+
+    return {
+        "inn": inn,
+        "count": len(items),
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "items": items,
+    }
+
+def get_company_mktu_stats(inn: str) -> Dict[str, Any]:
+    """
+        Возвращает агрегированную информацию по классам МКТУ компании.
+
+        Вычисляет:
+        - уникальные классы МКТУ
+        - количество вхождений каждого класса
+
+        Используется для аналитики и визуализации (например, pie chart).
+        """
+    df = load_trademarks_dataset()
+
+    company_df = df[df["inn"] == inn]
+
+    all_classes = []
+
+    for value in company_df["classes"]:
+        all_classes.extend(_parse_classes(value))
+
+    if not all_classes:
+        return {
+            "inn": inn,
+            "unique_classes": [],
+            "classes_count": {},
+        }
+
+    # считаем частоты
+    from collections import Counter
+    counter = Counter(all_classes)
+
+    return {
+        "inn": inn,
+        "unique_classes": sorted(counter.keys()),
+        "classes_count": dict(counter),
+    }
 
 def load_dataset() -> pd.DataFrame:
     """
@@ -25,10 +154,16 @@ def load_dataset() -> pd.DataFrame:
 
 def _normalize_value(value: Any) -> Any:
     """
-    Преобразует NaN/NaT в None, чтобы JSON-ответы были аккуратными.
+    Преобразует значения к виду, удобному для JSON:
+    - NaN/NaT -> None
+    - numpy scalar -> обычный Python int/float/bool
     """
     if pd.isna(value):
         return None
+
+    if isinstance(value, np.generic):
+        return value.item()
+
     return value
 
 

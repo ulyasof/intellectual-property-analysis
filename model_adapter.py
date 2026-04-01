@@ -68,7 +68,24 @@ def validate_image_bytes(file_bytes: bytes) -> str:
 
     return format_to_suffix[image.format]
 
-def find_similar_logos(file_bytes: bytes, top_k: int = 5) -> List[Dict[str, Any]]:
+def build_image_url(path_value: str, base_url: str) -> str | None:
+    if not path_value:
+        return None
+
+    path = Path(path_value)
+    parts = path.parts
+
+    if "dataset" not in parts:
+        return None
+
+    dataset_index = parts.index("dataset")
+    relative_parts = parts[dataset_index + 1:]
+    relative_path = "/".join(relative_parts)
+
+    return f"{base_url}/dataset/{relative_path}"
+
+
+def find_similar_logos(file_bytes: bytes, top_k: int = 5, query_mktu: str = "") -> Dict[str, Any]:
     """
     Запускает внешний inference-скрипт для поиска похожих логотипов.
 
@@ -81,7 +98,8 @@ def find_similar_logos(file_bytes: bytes, top_k: int = 5) -> List[Dict[str, Any]
     """
     file_suffix = validate_image_bytes(file_bytes)
 
-    output_dir = Path("inference_outputs")
+    project_root = Path(__file__).resolve().parent
+    output_dir = project_root / "inference_outputs"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     unique_name = f"query_{uuid.uuid4().hex}"
@@ -95,23 +113,31 @@ def find_similar_logos(file_bytes: bytes, top_k: int = 5) -> List[Dict[str, Any]
     temp_image_path = renamed_temp_image_path
 
     json_result_path = output_dir / f"{unique_name}_top{top_k}.json"
+    risk_result_path = output_dir / f"{unique_name}_risk.json"
     csv_result_path = output_dir / f"{unique_name}_top{top_k}.csv"
     vis_result_path = output_dir / f"{unique_name}_top{top_k}.jpg"
 
     try:
+        project_root = Path(__file__).resolve().parent
+        model_handoff_dir = project_root / "model_handoff"
+        inference_script = model_handoff_dir / "inference_search.py"
+        model_dir = model_handoff_dir / "final_model"
+
         command = [
             sys.executable,
-            "model_handoff/inference_search.py",
+            str(inference_script),
             "--image_path",
             str(temp_image_path.resolve()),
             "--model_dir",
-            "model_handoff/final_model",
+            str(model_dir.resolve()),
             "--project_root",
-            "model_handoff",
+            str(project_root.resolve()),
             "--top_k",
             str(top_k),
             "--output_dir",
-            str(output_dir),
+            str(output_dir.resolve()),
+            "--query_mktu_classes",
+            query_mktu,
         ]
 
         process = subprocess.run(
@@ -133,14 +159,27 @@ def find_similar_logos(file_bytes: bytes, top_k: int = 5) -> List[Dict[str, Any]
                 f"JSON-результат не найден: {json_result_path}"
             )
 
+        if not risk_result_path.exists():
+            raise ModelResultError(
+                f"JSON-результат риска не найден: {risk_result_path}"
+            )
+
         try:
             with open(json_result_path, "r", encoding="utf-8") as f:
                 raw_results = json.load(f)
         except Exception as e:
             raise ModelResultError(f"Не удалось прочитать JSON-результат модели: {e}")
 
+        try:
+            with open(risk_result_path, "r", encoding="utf-8") as f:
+                risk_result = json.load(f)
+        except Exception as e:
+            raise ModelResultError(f"Не удалось прочитать JSON-результат риска: {e}")
+
         results = []
+        base_url = "http://194.67.102.116:8000"
         for item in raw_results:
+            image_url = build_image_url(item.get("path", ""), base_url)
             results.append(
                 {
                     "trademark_id": item.get("tm_id"),
@@ -148,18 +187,24 @@ def find_similar_logos(file_bytes: bytes, top_k: int = 5) -> List[Dict[str, Any]
                     "company_name": None,
                     "image_id": item.get("image_id"),
                     "path": item.get("path"),
+                    "image_url": image_url,
                     "source_type": item.get("source_type"),
                     "rank": item.get("rank"),
+                    "mktu_classes": item.get("mktu_classes")
                 }
             )
 
-        return results
+        return {
+            "results": results,
+            "risk": risk_result,
+        }
 
     finally:
         if temp_image_path.exists():
             temp_image_path.unlink(missing_ok=True)
 
         json_result_path.unlink(missing_ok=True)
+        risk_result_path.unlink(missing_ok=True)
         csv_result_path.unlink(missing_ok=True)
         vis_result_path.unlink(missing_ok=True)
 

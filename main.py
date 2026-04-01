@@ -1,5 +1,9 @@
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from typing import Any, Dict, List, Optional
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
+from fastapi import Form
+
 
 from data_loader import (
     filter_companies,
@@ -21,12 +25,18 @@ from model_adapter import (
     get_model_info,
 )
 
+from data_loader import get_company_trademarks, get_company_mktu_stats
+
 app = FastAPI(
     title="Trademark Analytics Service",
     description="Микросервис для аналитики компаний и поиска похожих логотипов",
     version="1.0.0",
 )
 
+project_root = Path(__file__).resolve().parent
+dataset_dir = project_root / "model_handoff" / "dataset"
+
+app.mount("/dataset", StaticFiles(directory=dataset_dir), name="dataset")
 
 ALLOWED_IMAGE_TYPES = {
     "image/png",
@@ -264,6 +274,41 @@ def companies_filter(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка при фильтрации компаний: {e}")
 
+@app.get("/company/{inn}/trademarks")
+def company_trademarks(
+    inn: str,
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+):
+    """
+    Возвращает список товарных знаков компании с классами МКТУ.
+    """
+    try:
+        return get_company_trademarks(
+            inn=inn,
+            limit=limit,
+            offset=offset,
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Ошибка при получении МКТУ: {e}",
+        )
+
+@app.get("/company/{inn}/mktu_stats")
+def company_mktu_stats(inn: str):
+    """
+    Возвращает агрегированную статистику по классам МКТУ компании.
+    """
+    try:
+        return get_company_mktu_stats(inn)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Ошибка при расчёте МКТУ: {e}",
+        )
 
 @app.get("/model_info")
 def model_info():
@@ -279,23 +324,19 @@ def model_info():
 @app.post("/search_logo")
 async def search_logo(
     file: UploadFile = File(...),
-    top_k: int = Query(5, ge=1, le=20),
+    top_k: int = Form(5),
+    query_mktu: str = Form(""),
 ):
     """
     Принимает изображение логотипа и возвращает список похожих результатов.
     """
-    if file.content_type not in ALLOWED_IMAGE_TYPES:
-        raise HTTPException(
-            status_code=400,
-            detail="Неподдерживаемый формат файла. Разрешены PNG, JPEG, JPG, WEBP.",
-        )
-
     try:
         file_bytes = await file.read()
 
         results = find_similar_logos(
             file_bytes=file_bytes,
             top_k=top_k,
+            query_mktu=query_mktu,
         )
 
         response = {
