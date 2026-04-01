@@ -6,6 +6,33 @@ import streamlit as st
 from api.service import search_similar_logos
 from utils.ui import apply_custom_styles, page_header, section_header
 
+
+def parse_mktu_classes(raw_value: str) -> list[int]:
+    if not raw_value or not raw_value.strip():
+        return []
+
+    result = []
+    for chunk in raw_value.replace(";", ",").split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        if not chunk.isdigit():
+            raise ValueError(
+                "Классы МКТУ должны быть перечислены числами через запятую, например: 10, 27, 32"
+            )
+        result.append(int(chunk))
+
+    return sorted(set(result))
+
+
+def format_class_list(value) -> str:
+    if value is None:
+        return "—"
+    if isinstance(value, list):
+        return ", ".join(str(x) for x in value) if value else "—"
+    return str(value)
+
+
 st.set_page_config(page_title="Поиск похожих знаков", layout="wide")
 apply_custom_styles()
 
@@ -17,6 +44,11 @@ page_header(
 uploaded_file = st.file_uploader(
     "Загрузите изображение логотипа",
     type=["png", "jpg", "jpeg", "webp"]
+)
+
+query_mktu_input = st.text_input(
+    "Классы МКТУ для загруженного изображения",
+    placeholder="Например: 10, 27, 32"
 )
 
 top_k = st.selectbox(
@@ -34,6 +66,8 @@ if uploaded_file is not None:
             temp_file_path = None
 
             try:
+                query_mktu_classes = parse_mktu_classes(query_mktu_input)
+
                 suffix = os.path.splitext(uploaded_file.name)[1].lower()
                 if not suffix:
                     suffix = ".jpg"
@@ -44,22 +78,13 @@ if uploaded_file is not None:
 
                 response = search_similar_logos(
                     file_name=temp_file_path,
-                    top_k=top_k
+                    top_k=top_k,
+                    query_mktu_classes=query_mktu_classes,
                 )
 
-                nested_payload = response.get("results", {})
-                if not isinstance(nested_payload, dict):
-                    nested_payload = {}
-
-                top_matches = nested_payload.get("results", [])
-                if not isinstance(top_matches, list):
-                    top_matches = []
-
-                top_matches = top_matches[:top_k]
-
-                risk = nested_payload.get("risk", {})
-                if not isinstance(risk, dict):
-                    risk = {}
+                payload = response.get("results", {})
+                top_matches = payload.get("results", [])[:top_k]
+                risk = payload.get("risk", {})
 
                 section_header("Результаты поиска")
 
@@ -116,7 +141,7 @@ if uploaded_file is not None:
                     risk_score = risk.get("risk_score", "—")
                     top_conflict_tm_id = risk.get("top_conflict_tm_id", "—")
                     top_visual_score = risk.get("top_visual_score", "—")
-                    query_mktu_classes = risk.get("query_mktu_classes", "—")
+                    query_mktu_classes_from_risk = risk.get("query_mktu_classes", query_mktu_classes)
                     candidate_mktu_classes = risk.get("candidate_mktu_classes", "—")
                     mktu_overlap = risk.get("mktu_overlap", [])
                     num_unique_candidates = risk.get("num_unique_candidates", "—")
@@ -141,15 +166,23 @@ if uploaded_file is not None:
                         st.write(f"**Количество уникальных кандидатов:** {num_unique_candidates}")
 
                     with r2:
-                        overlap_text = ", ".join(mktu_overlap) if mktu_overlap else "—"
-                        st.write(f"**Классы МКТУ запроса:** {query_mktu_classes}")
-                        st.write(f"**Классы МКТУ найденного знака:** {candidate_mktu_classes}")
-                        st.write(f"**Пересечение по МКТУ:** {overlap_text}")
+                        st.write(
+                            f"**Классы МКТУ запроса:** {format_class_list(query_mktu_classes_from_risk)}"
+                        )
+                        st.write(
+                            f"**Классы МКТУ найденного знака:** {format_class_list(candidate_mktu_classes)}"
+                        )
+                        st.write(
+                            f"**Пересечение по МКТУ:** {format_class_list(mktu_overlap)}"
+                        )
 
                     if explanation:
                         st.markdown("**Пояснение**")
-                        for line in explanation:
-                            st.markdown(f"- {line}")
+                        if isinstance(explanation, str):
+                            st.markdown(f"- {explanation}")
+                        else:
+                            for line in explanation:
+                                st.markdown(f"- {line}")
 
             except Exception as e:
                 st.error(f"Ошибка при поиске похожих знаков: {e}")

@@ -3,6 +3,8 @@ import pandas as pd
 import streamlit as st
 
 from api.service import filter_companies, get_cluster_stats
+from utils.columns import COLUMN_LABELS
+
 
 SHOW_EXPERIMENTAL_BRAND_SCORE = False
 
@@ -48,7 +50,6 @@ if SHOW_EXPERIMENTAL_BRAND_SCORE:
 
 cluster_value = None if selected_cluster == "Все" else int(selected_cluster)
 
-# Сбрасываем пагинацию, если поменялись фильтры или размер страницы
 current_filters_signature = (
     limit,
     selected_cluster,
@@ -72,12 +73,17 @@ items = response["items"]
 total = response["total"]
 offset = response["offset"]
 
-# если offset оказался за пределами total
 if total > 0 and offset >= total:
     st.session_state["companies_offset"] = max(0, ((total - 1) // limit) * limit)
     st.rerun()
 
 df = pd.DataFrame(items)
+
+allowed_columns = list(COLUMN_LABELS.keys())
+
+for col in allowed_columns:
+    if col not in df.columns:
+        df[col] = None
 
 current_page = (st.session_state["companies_offset"] // limit) + 1
 total_pages = max(1, math.ceil(total / limit))
@@ -104,57 +110,31 @@ st.subheader("Таблица компаний")
 if df.empty:
     st.warning("Нет компаний, подходящих под выбранные фильтры.")
 else:
-    column_labels = {
-        "inn": "ИНН",
-        "company_name": "Компания",
-        "region": "Регион",
-        "industry": "Отрасль",
-        "num_marks": "Количество товарных знаков",
-        "cluster": "Кластер",
-        "brand_score": "Brand score",
-        "active_share": "Доля активных ТЗ",
-        "avg_portfolio_age": "Средний возраст портфеля",
-        "nice_class_count": "Количество классов МКТУ",
-        "pca_x": "PCA X",
-        "pca_y": "PCA Y",
-    }
-
     default_columns = [
         "inn",
         "company_name",
         "region",
         "industry",
         "num_marks",
-        "cluster",
-    ]
-
-    available_columns = [
-        "inn",
-        "company_name",
-        "region",
-        "industry",
-        "num_marks",
-        "cluster",
+        "num_active",
         "brand_score",
-        "active_share",
-        "avg_portfolio_age",
-        "nice_class_count",
+        "cluster",
     ]
-    available_columns = [col for col in available_columns if col in df.columns]
 
     st.caption("Пользователь может самостоятельно выбрать, какие столбцы отображать в таблице.")
 
     selected_columns = st.multiselect(
         "Выберите столбцы для отображения",
-        options=available_columns,
-        default=[col for col in default_columns if col in available_columns],
-        format_func=lambda col: column_labels.get(col, col),
+        options=allowed_columns,
+        default=[c for c in default_columns if c in allowed_columns],
+        format_func=lambda col: COLUMN_LABELS[col],
+        max_selections=15,
     )
 
     if not selected_columns:
-        st.info("Выберите хотя бы один столбец для отображения таблицы.")
+        st.info("Выберите хотя бы один столбец для отображения.")
     else:
         display_df = df[selected_columns].rename(
-            columns={col: column_labels.get(col, col) for col in selected_columns}
+            columns={col: COLUMN_LABELS[col] for col in selected_columns}
         )
         st.dataframe(display_df, use_container_width=True, hide_index=True)

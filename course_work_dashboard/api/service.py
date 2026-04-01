@@ -20,6 +20,14 @@ def get_company_by_inn(inn):
     return backend.get_company_by_inn(inn)
 
 
+def get_company_trademark_classes(inn):
+    return backend.get_company_trademark_classes(inn)
+
+
+def get_company_trademark_classes_agg(inn):
+    return backend.get_company_trademark_classes_agg(inn)
+
+
 def get_cluster_stats():
     return backend.get_cluster_stats()
 
@@ -54,5 +62,9 @@ def filter_companies(cluster=None, min_brand_score=None, max_brand_score=None, l
     )
 
 
-def search_similar_logos(file_name=None, top_k=5):
-    return backend.search_similar_logos(file_path=file_name, top_k=top_k)
+def search_similar_logos(file_name=None, top_k=5, query_mktu_classes=None):
+    return backend.search_similar_logos(
+        file_path=file_name,
+        top_k=top_k,
+        query_mktu_classes=query_mktu_classes,
+    )

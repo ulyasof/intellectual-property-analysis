@@ -2,8 +2,9 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+from utils.columns import COLUMN_LABELS
+
 from api.service import (
-    get_available_columns,
     get_cluster_stats,
     get_numeric_summary,
 )
@@ -19,14 +20,16 @@ page_header(
 summary = get_numeric_summary()
 cluster_stats = get_cluster_stats()
 cluster_df = pd.DataFrame(cluster_stats)
-columns = get_available_columns()
+
+available_columns = list(COLUMN_LABELS.keys())
+
 
 cluster_count = cluster_df["cluster"].nunique() if not cluster_df.empty else 0
 
 k1, k2, k3 = st.columns(3)
 k1.metric("Всего компаний", summary["row_count"])
 k2.metric("Количество кластеров", cluster_count)
-k3.metric("Количество признаков", len(columns))
+k3.metric("Количество признаков", len(available_columns))
 
 section_header("О системе")
 c1, c2 = st.columns(2)
@@ -92,14 +95,12 @@ section_header("Краткая сводка")
 summary_df = pd.DataFrame(
     [
         {"Показатель": "Число строк", "Значение": summary["row_count"]},
-        {"Показатель": "Число колонок", "Значение": len(summary["columns"])},
-        {"Показатель": "Число числовых колонок", "Значение": len(summary["numeric_columns"])},
+        {"Показатель": "Число колонок", "Значение": len(available_columns)},
     ]
 )
 st.dataframe(summary_df, use_container_width=True, hide_index=True)
 
-available_columns = get_available_columns()
 
 with st.expander("Показать список доступных колонок"):
     for col in available_columns:
-        st.write(col)
+        st.write(f"{COLUMN_LABELS[col]}")

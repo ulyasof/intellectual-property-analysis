@@ -4,8 +4,8 @@ import requests
 import mimetypes
 
 
-BASE_URL = "http://127.0.0.1:8000"
-#BASE_URL = os.getenv("BACKEND_URL", "http://194.67.102.116:8000")
+#BASE_URL = "http://127.0.0.1:8000" # для запуска на сервере
+BASE_URL = os.getenv("BACKEND_URL", "http://194.67.102.116:8000")  # для локального запуска
 API_TOKEN = os.getenv("API_TOKEN")
 
 
@@ -64,6 +64,29 @@ def get_cluster_stats() -> List[Dict[str, Any]]:
         headers=_headers(),
         timeout=15,
     )
+    response.raise_for_status()
+    return response.json()
+
+def get_company_trademark_classes(inn: str) -> Dict[str, Any]:
+    response = requests.get(
+        f"{BASE_URL}/company/{inn}/trademarks",
+        headers=_headers(),
+        timeout=15,
+    )
+    if response.status_code == 404:
+        return {"inn": inn, "count": 0, "total": 0, "limit": 100, "offset": 0, "items": []}
+    response.raise_for_status()
+    return response.json()
+
+
+def get_company_trademark_classes_agg(inn: str) -> Dict[str, Any]:
+    response = requests.get(
+        f"{BASE_URL}/company/{inn}/mktu_stats",
+        headers=_headers(),
+        timeout=15,
+    )
+    if response.status_code == 404:
+        return {"inn": inn, "unique_classes": [], "classes_count": {}}
     response.raise_for_status()
     return response.json()
 
@@ -146,7 +169,11 @@ def filter_companies(
     response.raise_for_status()
     return response.json()
 
-def search_similar_logos(file_path: Optional[str] = None, top_k: int = 5) -> Dict[str, Any]:
+def search_similar_logos(
+    file_path: Optional[str] = None,
+    top_k: int = 5,
+    query_mktu_classes: Optional[List[int]] = None,
+) -> Dict[str, Any]:
     if not file_path:
         raise ValueError("Не указан путь к файлу")
 
@@ -159,11 +186,15 @@ def search_similar_logos(file_path: Optional[str] = None, top_k: int = 5) -> Dic
             "file": (os.path.basename(file_path), f, mime_type)
         }
 
+        data = {"top_k": top_k}
+        if query_mktu_classes:
+            data["query_mktu"] = ",".join(str(x) for x in query_mktu_classes)
+
         response = requests.post(
             f"{BASE_URL}/search_logo",
             headers=_headers(),
             files=files,
-            data={"top_k": top_k},
+            data=data,
             timeout=60,
         )
 
