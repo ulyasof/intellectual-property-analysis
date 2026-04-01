@@ -1,2 +1,12 @@
 data-rospatent-source.csv
+__pycache__/
+*.pyc
+.DS_Store
 
+inference_outputs/
+model_handoff/dataset/
+companies_dataset.csv
+logo.png
+
+*.csv
+model_handoff/
