@@ -33,6 +33,7 @@ model_adapter.py — интеграция с моделью
 
 ## Модуль работы с МКТУ
 Файлы parsing_mktu.py, json_2.py, intersection_json.py, result_csv_mktu.py.
+
 Отвечает за:
 - парсинг МКТУ
 - повторный сбор пропущенных данных
